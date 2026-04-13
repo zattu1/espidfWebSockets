@@ -2,6 +2,9 @@
 
 #include "network_client_impl.h"
 
+#include <lwip/sockets.h>
+#include <sys/ioctl.h>
+
 #include <cstring>
 
 namespace {
@@ -68,6 +71,15 @@ int WebSocketsNetworkClientSecure::available() {
     }
 
     int availableBytes = static_cast<int>(esp_tls_get_bytes_avail(_impl->tls));
+    if (availableBytes == 0) {
+        int socketFd = -1;
+        if (esp_tls_get_conn_sockfd(_impl->tls, &socketFd) == ESP_OK && socketFd >= 0) {
+            int socketBytes = 0;
+            if (ioctl(socketFd, FIONREAD, &socketBytes) == 0 && socketBytes > 0) {
+                availableBytes = socketBytes;
+            }
+        }
+    }
     if (_impl->has_peeked_byte) {
         availableBytes += 1;
     }
