@@ -1,115 +1,124 @@
-WebSocket Server and Client for Arduino [![Build Status](https://github.com/Links2004/arduinoWebSockets/actions/workflows/main.yml/badge.svg?branch=master)](https://github.com/Links2004/arduinoWebSockets/actions?query=branch%3Amaster)
-===========================================
+ESP-IDF WebSockets Fork
+=======================
 
-a WebSocket Server and Client for Arduino based on RFC6455.
+This repository is a project-specific fork of Links2004/arduinoWebSockets.
 
+The WebSocket protocol layer and high-level client API are retained, but the ESP32 client transport has been changed from Arduino-derived TLS/network classes to ESP-IDF networking primitives.
 
-##### Supported features of RFC6455 #####
- - text frame
- - binary frame
- - connection close
- - ping
- - pong
- - continuation frame
+What changed in this fork
+-------------------------
 
-##### Limitations #####
- - max input length is limited to the ram size and the ```WEBSOCKETS_MAX_DATA_SIZE``` define
- - max output length has no limit (the hardware is the limit)
- - Client send big frames with mask 0x00000000 (on AVR all frames)
- - continuation frame reassembly need to be handled in the application code
+- The client-side plain TCP transport in NETWORK_CUSTOM mode is implemented with esp_tls_plain_tcp_connect and lwIP sockets.
+- The client-side WSS transport in NETWORK_CUSTOM mode is implemented with esp_tls.
+- TLS read and write use esp_tls_conn_read, esp_tls_conn_write, and esp_tls_get_bytes_avail.
+- Root CA handling can use either an explicit CA certificate or the ESP-IDF certificate bundle via esp_crt_bundle_attach.
+- The consuming firmware uses WEBSOCKETS_NETWORK_TYPE=10 so the library resolves to the custom network classes in this fork.
+- This removes the previous dependency on Arduino NetworkClientSecure for the active ESP32 websocket client path.
 
- ##### Limitations for Async #####
- - Functions called from within the context of the websocket event might not honor `yield()` and/or `delay()`.  See [this issue](https://github.com/Links2004/arduinoWebSockets/issues/58#issuecomment-192376395) for more info and a potential workaround.
- - wss / SSL is not possible.
+Current scope
+-------------
 
-##### Supported Hardware #####
- - ESP8266 [Arduino for ESP8266](https://github.com/esp8266/Arduino/)
- - ESP32 [Arduino for ESP32](https://github.com/espressif/arduino-esp32)
- - ESP31B
- - Raspberry Pi Pico W [Arduino for Pico](https://github.com/earlephilhower/arduino-pico)
- - Particle with STM32 ARM Cortex M3
- - ATmega328 with Ethernet Shield (ATmega branch)
- - ATmega328 with enc28j60 (ATmega branch)
- - ATmega2560 with Ethernet Shield (ATmega branch)
- - ATmega2560 with enc28j60 (ATmega branch)
- - Arduino UNO [R4 WiFi](https://github.com/arduino/ArduinoCore-renesas)
- - Arduino Nano 33 IoT, MKR WIFI 1010 (requires [WiFiNINA](https://github.com/arduino-libraries/WiFiNINA/) library)
- - Seeeduino XIAO, Seeeduino Wio Terminal (requires [rpcWiFi](https://github.com/Seeed-Studio/Seeed_Arduino_rpcWiFi) library)
+This fork is intended for the ESP32 client path used by this workspace.
 
-###### Note: ######
+- Protocol handling remains based on RFC6455 as implemented by the upstream library.
+- The public WebSocketsClient API remains compatible with the existing application code.
+- The active transport migration is focused on client mode.
+- Server-side functionality and non-ESP32 targets are not the primary target of this fork.
 
-  version 2.0.0 and up is not compatible with AVR/ATmega, check ATmega branch.
+Supported RFC6455 features
+--------------------------
 
-  version 2.3.0 has API changes for the ESP8266 BareSSL (may brakes existing code)
+- text frame
+- binary frame
+- connection close
+- ping
+- pong
+- continuation frame
 
-  Arduino for AVR not supports std namespace of c++.
+Transport architecture
+----------------------
 
-### wss / SSL ###
- supported for:
- - wss client on the ESP8266
- - wss / SSL for ESP32 in client mode
- - wss / SSL is not natively supported in WebSocketsServer however it is possible to achieve secure websockets
-   by running the device behind an SSL proxy. See [Nginx](examples/Nginx/esp8266.ssl.reverse.proxy.conf) for a
-   sample Nginx server configuration file to enable this.
+The active ESP32 client path uses the custom network type defined in src/WebSockets.h.
 
-### Root CA Cert Bundles for SSL/TLS connections ###
+- NETWORK_CUSTOM maps the client classes to WebSocketsNetworkClient and WebSocketsNetworkClientSecure.
+- WebSocketsNetworkClient provides plain TCP using esp_tls_plain_tcp_connect plus socket read, write, peek, and available handling.
+- WebSocketsNetworkClientSecure provides WSS using esp_tls.
+- TLS teardown is handled through esp_tls_conn_destroy.
 
-Secure connections require the certificate of the server to be verified. One option is to provide a single certificate in the chain of trust. However, for flexibility and robustness, a certificate bundle is recommended. If a server changes the root CA from which it derives its certificates, this will not be a problem. With a single CA cert it will not connect.
+The custom transport is implemented in these files.
 
- - For [technical details](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/protocols/esp_crt_bundle.html)
- - For a [PlatformIO setup](https://github.com/Duckle29/esp32-certBundle/)
- - For an [example](examples/esp32/WebSocketClientSSLBundle/)
+- src/WebSocketsNetworkClient.h
+- src/WebSocketsNetworkClient.cpp
+- src/WebSocketsNetworkClientSecure.h
+- src/WebSocketsNetworkClientSecure.cpp
+- src/network_client_impl.h
 
-Including a bundle with all CA certs will use 77.2 kB but this list can be reduced to 16.5 kB for the 41 most common. This results in 90% absolute usage coverage and 99% market share coverage according to [W3Techs](https://w3techs.com/technologies/overview/ssl_certificate). The bundle is inserted into the compiled firmware. The bundle is not loaded into RAM, only its index.
+ESP-IDF TLS behavior
+--------------------
 
-### ESP Async TCP ###
+Secure websocket connections in this fork rely on ESP-IDF TLS facilities.
 
-This libary can run in Async TCP mode on the ESP.
+- setCACert stores a PEM CA certificate for server verification.
+- setCACertBundle enables the ESP-IDF CA bundle path.
+- setCertificate and setPrivateKey pass client certificate material into esp_tls_cfg_t.
+- setInsecure keeps API compatibility with the original client class behavior.
 
-The mode can be activated in the ```WebSockets.h``` (see WEBSOCKETS_NETWORK_TYPE define).
+The implementation is intended to run in an ESP32 PlatformIO environment that enables ESP-IDF alongside Arduino framework compatibility.
 
-[ESPAsyncTCP](https://github.com/me-no-dev/ESPAsyncTCP) libary is required.
+Workspace integration
+---------------------
 
+In this workspace the library is consumed as a local dependency from the ESP32 firmware project.
 
-### High Level Client API ###
+Example PlatformIO configuration:
 
- - `begin` : Initiate connection sequence to the websocket host.
-```c++
-void begin(const char *host, uint16_t port, const char * url = "/", const char * protocol = "arduino");
-void begin(String host, uint16_t port, String url = "/", String protocol = "arduino");
-```
- - `onEvent`: Callback to handle for websocket events
+```ini
+lib_deps =
+    symlink://../espidfWebSockets
 
-```c++
- void onEvent(WebSocketClientEvent cbEvent);
+build_flags =
+    -DWEBSOCKETS_NETWORK_TYPE=10
 ```
 
- - `WebSocketClientEvent`: Handler for websocket events
-```c++
- void (*WebSocketClientEvent)(WStype_t type, uint8_t * payload, size_t length)
-```
-Where `WStype_t type` is defined as:
-```c++
-  typedef enum {
-      WStype_ERROR,
-      WStype_DISCONNECTED,
-      WStype_CONNECTED,
-      WStype_TEXT,
-      WStype_BIN,
-      WStype_FRAGMENT_TEXT_START,
-      WStype_FRAGMENT_BIN_START,
-      WStype_FRAGMENT,
-      WStype_FRAGMENT_FIN,
-      WStype_PING,
-      WStype_PONG,
-  } WStype_t;
+The corresponding firmware is built in a hybrid environment:
+
+```ini
+framework =
+    arduino
+    espidf
 ```
 
-### Issues ###
-Submit issues to: https://github.com/Links2004/arduinoWebSockets/issues
+This arrangement preserves the existing application-facing WebSocketsClient usage while moving the underlying websocket transport to ESP-IDF.
 
-### License and credits ###
+Application API
+---------------
 
-The library is licensed under [LGPLv2.1](https://github.com/Links2004/arduinoWebSockets/blob/master/LICENSE)
+The existing high-level client API remains available, including:
 
-[libb64](http://libb64.sourceforge.net/) written by Chris Venter. It is distributed under Public Domain see [LICENSE](https://github.com/Links2004/arduinoWebSockets/blob/master/src/libb64/LICENSE).
+- begin
+- beginSSL
+- onEvent
+- loop
+- sendTXT
+- sendBIN
+
+The event type enum remains the same as the upstream library, so existing callback code can continue to operate without protocol-layer changes.
+
+Limitations
+-----------
+
+- This README describes the active ESP32 client transport used in this fork, not a full rework of every upstream target.
+- The implementation is validated in the current PlatformIO ESP32 project, not as a general replacement for every upstream example.
+- Async mode and non-ESP32 board support should be treated as upstream behavior unless separately reworked.
+
+Upstream origin
+---------------
+
+This repository originates from Links2004/arduinoWebSockets, but the README intentionally describes the fork's current ESP-IDF-backed transport behavior rather than the original Arduino-centric distribution.
+
+License
+-------
+
+The library remains under LGPLv2.1. See LICENSE.
+
+libb64 is included under its original terms in src/libb64/LICENSE.
