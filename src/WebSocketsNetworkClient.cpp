@@ -52,7 +52,10 @@ bool WebSocketsNetworkClient::Impl::connect_plain(const char *host, uint16_t por
     cfg.timeout_ms = timeout_ms > 0 ? timeout_ms : kDefaultSocketTimeoutMs;
 
     int plainSocket = -1;
-    const esp_err_t err = esp_tls_plain_tcp_connect(host, strlen(host), port, &cfg, nullptr, &plainSocket);
+    // ESP-IDF rejects a null error handle before opening a socket, so plain
+    // ws:// connects failed immediately while wss:// (a different API) worked.
+    esp_tls_last_error_t tlsError = {};
+    const esp_err_t err = esp_tls_plain_tcp_connect(host, strlen(host), port, &cfg, &tlsError, &plainSocket);
     if (err != ESP_OK || plainSocket < 0) {
         if (plainSocket >= 0) {
             closesocket(plainSocket);
